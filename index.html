@@ -108,10 +108,9 @@
 
   <div class="frames" id="result"></div>
 
-  <!-- ffmpeg UMD -->
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-  <!-- JSZip -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- 로컬에 올려둔 ffmpeg / jszip 사용 -->
+  <script src="ffmpeg.js"></script>
+  <script src="jszip.min.js"></script>
 
   <script>
     const videoInput = document.getElementById("video");
@@ -127,13 +126,13 @@
     async function ensureFFmpeg() {
       if (ffmpeg) return;
       if (!window.FFmpeg) {
-        throw new Error("FFmpeg 스크립트를 불러오지 못했습니다.");
+        throw new Error("FFmpeg 전역 객체가 없습니다. ffmpeg.js 로딩 실패.");
       }
       const { createFFmpeg, fetchFile } = window.FFmpeg;
       fetchFileFn = fetchFile;
       ffmpeg = createFFmpeg({
         log: false,
-        corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js"
+        corePath: "./ffmpeg-core.js"   // 같은 폴더의 ffmpeg-core.js 사용
       });
       await ffmpeg.load();
     }
