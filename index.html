@@ -81,9 +81,24 @@
       border-radius: 12px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.12);
     }
+    /* 제작자 배지 */
+    .creator-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #0d6efd, #20c997);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      letter-spacing: 0.03em;
+    }
   </style>
 </head>
 <body>
+  <!-- 제작자 배지 -->
+  <div class="creator-badge">제작자 : 자돈</div>
+
   <h1>영상 → 프레임 추출기</h1>
   <p>카톡·인스타·틱톡 영상도 바로 프레임으로!</p>
 
@@ -140,7 +155,7 @@
         selectedFile = file;
         goBtn.disabled = false;
         status.innerHTML =
-          '<strong>' + file.name + '</strong>\\n파란 버튼을 누르면 프레임을 추출합니다!';
+          '<strong>' + file.name + '</strong><br>파란 버튼을 누르면 프레임을 추출합니다!';
       } else {
         selectedFile = null;
         goBtn.disabled = true;
@@ -168,14 +183,15 @@
       });
     }
 
-    // 3. 특정 시점으로 시킹 (타임아웃 포함)
+    // 3. 특정 시점으로 시킹 (타임아웃 + 실제 currentTime 검증)
     function seekTo(time) {
       return new Promise((resolve) => {
         let settled = false;
 
+        // 끝부분에서 오류 나는 것 방지: duration보다 살짝 앞까지만
         const safeTime = Math.max(
           0,
-          Math.min(time, (videoEl.duration || time) - 0.01)  // 끝에서 살짝 앞으로
+          Math.min(time, (videoEl.duration || time) - 0.01)
         );
 
         const onSeeked = () => {
@@ -183,7 +199,7 @@
           settled = true;
           clearTimeout(timeoutId);
           videoEl.removeEventListener('seeked', onSeeked);
-          resolve();
+          resolve(safeTime);
         };
 
         const onError = () => {
@@ -192,8 +208,8 @@
           clearTimeout(timeoutId);
           videoEl.removeEventListener('seeked', onSeeked);
           videoEl.removeEventListener('error', onError);
-          // 에러여도 그냥 다음 프레임으로 진행
-          resolve();
+          console.warn('seek 중 오류, time =', safeTime);
+          resolve(safeTime); // 오류여도 일단 계속 진행
         };
 
         const timeoutId = setTimeout(() => {
@@ -202,7 +218,7 @@
           videoEl.removeEventListener('seeked', onSeeked);
           videoEl.removeEventListener('error', onError);
           console.warn('seekTo 타임아웃, time =', safeTime);
-          resolve();
+          resolve(safeTime);
         }, 3000); // 3초 이상 안 되면 포기하고 진행
 
         videoEl.addEventListener('seeked', onSeeked);
@@ -278,7 +294,19 @@
           status.textContent =
             '프레임 추출 중... (' + (i + 1) + '/' + captureTimes.length + ')';
 
-          await seekTo(t);
+          const targetTime = await seekTo(t);
+
+          // ✅ 실제 currentTime이 우리가 원하는 위치 근처인지 확인
+          const diff = Math.abs(videoEl.currentTime - targetTime);
+          if (diff > 0.3) {
+            console.warn(
+              'seek 실패로 보임, 이 프레임은 스킵',
+              'target=', targetTime,
+              'actual=', videoEl.currentTime
+            );
+            // 같은 장면 복붙 방지: 이 프레임은 아예 건너뜀
+            continue;
+          }
 
           try {
             const blob = await captureFrameAsBlob();
