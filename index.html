@@ -84,8 +84,6 @@
   <!-- ffmpeg.wasm 로드 (CDN) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
   <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-
     const videoInput = document.getElementById('videoInput');
     const extractBtn = document.getElementById('extractBtn');
     const statusEl = document.getElementById('status');
@@ -93,6 +91,8 @@
 
     let ffmpeg = null;
     let selectedFile = null;
+    let createFFmpegFn = null;
+    let fetchFileFn = null;
 
     // 파일 선택되면 버튼 활성화
     videoInput.addEventListener('change', (e) => {
@@ -107,14 +107,28 @@
     });
 
     async function initFFmpeg() {
+      // FFmpeg 전역 객체가 로드됐는지 확인
+      if (!window.FFmpeg) {
+        statusEl.textContent = '⚠ ffmpeg 라이브러리를 불러오지 못했습니다.\n잠시 후 다시 시도하거나, 광고 차단/네트워크 상태를 확인해 주세요.';
+        throw new Error('FFmpeg not loaded');
+      }
+
+      // createFFmpeg, fetchFile 한 번만 가져오기
+      if (!createFFmpegFn || !fetchFileFn) {
+        const { createFFmpeg, fetchFile } = window.FFmpeg;
+        createFFmpegFn = createFFmpeg;
+        fetchFileFn = fetchFile;
+      }
+
       if (!ffmpeg) {
-        ffmpeg = createFFmpeg({
+        ffmpeg = createFFmpegFn({
           corePath: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
           log: true,
         });
       }
+
       if (!ffmpeg.isLoaded()) {
-        statusEl.textContent = 'ffmpeg 로딩 중입니다... (처음 한 번만 좀 오래 걸립니다)';
+        statusEl.textContent = 'ffmpeg 로딩 중입니다... (처음 한 번만 조금 오래 걸립니다)';
         await ffmpeg.load();
       }
     }
@@ -134,13 +148,14 @@
         await initFFmpeg();
 
         // 가상 파일시스템에 영상 쓰기
-        const inputName = 'input_video' + (selectedFile.name.split('.').pop() || 'mp4');
-        ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+        const ext = selectedFile.name.includes('.') ? '.' + selectedFile.name.split('.').pop() : '.mp4';
+        const inputName = 'input_video' + ext;
+
+        await ffmpeg.FS('writeFile', inputName, await fetchFileFn(selectedFile));
 
         statusEl.textContent = '프레임 추출 중입니다...\n영상 길이에 따라 시간이 조금 걸릴 수 있어요.';
 
-        // fps=1 이면 1초에 한 장씩, fps=0.5 이면 2초에 한 장 (원하는대로 조절 가능)
-        // frame_%03d.jpg 형식으로 출력
+        // fps=1 이면 1초에 한 장씩, fps=0.5 이면 2초에 한 장
         await ffmpeg.run(
           '-i', inputName,
           '-vf', 'fps=1',
