@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>영상 → 프레임 추출기</h1>
-  <p>카톡 동영상도 바로 프레임으로 뽑아줍니다!<br>100% 브라우저에서만 처리돼요</p>
+  <p>카톡 동영상도 바로 프레임으로!</p>
 
   <div class="box">
     <p><strong>1. 영상 파일 선택</strong></p>
@@ -31,7 +31,6 @@
       <option value="1" selected>1초 (추천)</option>
       <option value="2">2초</option>
       <option value="5">5초</option>
-      <option value="10">10초</option>
     </select>
 
     <br><br>
@@ -42,18 +41,14 @@
   <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
   <div class="frames" id="result"></div>
 
-  <!-- 진짜 한국에서 100% 되는 싱글스레드 버전 -->
+  <!-- 진짜 살아있는 ST 버전 (dist 폴더 추가) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-  <script src="https://unpkg.com/@ffmpeg/core-st@0.11.0/ffmpeg-core.js"></script>
+  <script src="https://unpkg.com/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js"></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
-    // 싱글스레드 강제 (이게 핵심!)
-    const ffmpeg = createFFmpeg({
-      log: false,
-      corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.0/ffmpeg-core.js'
-    });
+    const ffmpeg = createFFmpeg({ log: false });
 
     const videoInput = document.getElementById('video');
     const goBtn = document.getElementById('go');
@@ -101,7 +96,7 @@
         status.textContent = `완료! ${files.length}장 추출됨 🎉`;
         zipBtn.disabled = false;
       } catch (e) {
-        status.textContent = `실패: ${e.message}\nCtrl+Shift+R 강제 새로고침 해보세요!`;
+        status.textContent = `실패: ${e.message}`;
       }
       goBtn.disabled = false;
     });
