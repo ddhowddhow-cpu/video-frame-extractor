@@ -146,6 +146,7 @@
     document.body.appendChild(canvas);
 
     let selectedFile = null;
+    let videoUrl = null;   // 🔑 blob URL 전역으로 관리
     let frames = [];
 
     // 1. 파일 선택 시 호출
@@ -163,35 +164,43 @@
       }
     }
 
-    // 2. 메타데이터 로딩
+    // 2. 메타데이터 로딩 (이제 여기선 revoke 안 함)
     function loadVideoMetadata(file) {
       return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
-        videoEl.src = url;
+        // 이전에 쓰던 blob URL 있으면 정리
+        if (videoUrl) {
+          URL.revokeObjectURL(videoUrl);
+          videoUrl = null;
+        }
+
+        videoUrl = URL.createObjectURL(file);
+        videoEl.src = videoUrl;
 
         const onLoaded = () => {
-          URL.revokeObjectURL(url);
+          videoEl.removeEventListener('loadedmetadata', onLoaded);
+          videoEl.removeEventListener('error', onError);
           resolve();
         };
         const onError = () => {
-          URL.revokeObjectURL(url);
+          videoEl.removeEventListener('loadedmetadata', onLoaded);
+          videoEl.removeEventListener('error', onError);
           reject(new Error('영상 메타데이터를 불러오지 못했습니다.'));
         };
 
-        videoEl.addEventListener('loadedmetadata', onLoaded, { once: true });
-        videoEl.addEventListener('error', onError, { once: true });
+        videoEl.addEventListener('loadedmetadata', onLoaded);
+        videoEl.addEventListener('error', onError);
       });
     }
 
-    // 3. 특정 시점으로 시킹 (타임아웃 + 실제 currentTime 검증)
+    // 3. 특정 시점으로 시킹 (타임아웃 + 실제 currentTime 검증용 target 반환)
     function seekTo(time) {
       return new Promise((resolve) => {
         let settled = false;
 
-        // 끝부분에서 오류 나는 것 방지: duration보다 살짝 앞까지만
+        const duration = videoEl.duration || time;
         const safeTime = Math.max(
           0,
-          Math.min(time, (videoEl.duration || time) - 0.01)
+          Math.min(time, duration - 0.01)
         );
 
         const onSeeked = () => {
@@ -199,6 +208,7 @@
           settled = true;
           clearTimeout(timeoutId);
           videoEl.removeEventListener('seeked', onSeeked);
+          videoEl.removeEventListener('error', onError);
           resolve(safeTime);
         };
 
@@ -219,10 +229,10 @@
           videoEl.removeEventListener('error', onError);
           console.warn('seekTo 타임아웃, time =', safeTime);
           resolve(safeTime);
-        }, 3000); // 3초 이상 안 되면 포기하고 진행
+        }, 3000);
 
         videoEl.addEventListener('seeked', onSeeked);
-        videoEl.addEventListener('error', onError, { once: true });
+        videoEl.addEventListener('error', onError);
 
         try {
           videoEl.currentTime = safeTime;
@@ -304,8 +314,7 @@
               'target=', targetTime,
               'actual=', videoEl.currentTime
             );
-            // 같은 장면 복붙 방지: 이 프레임은 아예 건너뜀
-            continue;
+            continue; // 같은 장면 복붙 방지
           }
 
           try {
@@ -328,6 +337,12 @@
       } catch (e) {
         console.error(e);
         status.textContent = '에러 발생: ' + (e.message || e);
+      } finally {
+        // 🔚 여기서만 blob URL 정리
+        if (videoUrl) {
+          URL.revokeObjectURL(videoUrl);
+          videoUrl = null;
+        }
       }
 
       goBtn.disabled = false;
