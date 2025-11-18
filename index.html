@@ -146,10 +146,9 @@
     document.body.appendChild(canvas);
 
     let selectedFile = null;
-    let videoUrl = null;   // 🔑 blob URL 전역으로 관리
+    let videoUrl = null;
     let frames = [];
 
-    // 1. 파일 선택 시 호출
     function onVideoChange(input) {
       const file = input.files[0];
       if (file) {
@@ -164,15 +163,12 @@
       }
     }
 
-    // 2. 메타데이터 로딩 (이제 여기선 revoke 안 함)
     function loadVideoMetadata(file) {
       return new Promise((resolve, reject) => {
-        // 이전에 쓰던 blob URL 있으면 정리
         if (videoUrl) {
           URL.revokeObjectURL(videoUrl);
           videoUrl = null;
         }
-
         videoUrl = URL.createObjectURL(file);
         videoEl.src = videoUrl;
 
@@ -192,58 +188,6 @@
       });
     }
 
-    // 3. 특정 시점으로 시킹 (타임아웃 + 실제 currentTime 검증용 target 반환)
-    function seekTo(time) {
-      return new Promise((resolve) => {
-        let settled = false;
-
-        const duration = videoEl.duration || time;
-        const safeTime = Math.max(
-          0,
-          Math.min(time, duration - 0.01)
-        );
-
-        const onSeeked = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          videoEl.removeEventListener('seeked', onSeeked);
-          videoEl.removeEventListener('error', onError);
-          resolve(safeTime);
-        };
-
-        const onError = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          videoEl.removeEventListener('seeked', onSeeked);
-          videoEl.removeEventListener('error', onError);
-          console.warn('seek 중 오류, time =', safeTime);
-          resolve(safeTime); // 오류여도 일단 계속 진행
-        };
-
-        const timeoutId = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          videoEl.removeEventListener('seeked', onSeeked);
-          videoEl.removeEventListener('error', onError);
-          console.warn('seekTo 타임아웃, time =', safeTime);
-          resolve(safeTime);
-        }, 3000);
-
-        videoEl.addEventListener('seeked', onSeeked);
-        videoEl.addEventListener('error', onError);
-
-        try {
-          videoEl.currentTime = safeTime;
-        } catch (e) {
-          console.error('currentTime 설정 중 오류:', e);
-          onError();
-        }
-      });
-    }
-
-    // 4. 현재 프레임 캡처
     function captureFrameAsBlob() {
       return new Promise((resolve, reject) => {
         try {
@@ -267,7 +211,6 @@
       });
     }
 
-    // 5. 프레임 추출 시작
     async function startExtract() {
       if (!selectedFile) return;
 
@@ -287,49 +230,79 @@
           throw new Error('영상 길이를 가져오지 못했습니다.');
         }
 
-        // 캡처 타임스탬프 계산
-        const captureTimes = [];
-        for (let t = 0; t <= duration; t += intervalSec) {
-          captureTimes.push(t);
-        }
-        if (captureTimes[captureTimes.length - 1] < duration - intervalSec / 2) {
-          captureTimes.push(duration);
-        }
+        // 재생 시작 상태로 두고, 시간 흐르면서 캡처
+        let nextCaptureTime = 0;
+        const maxTime = duration + 0.05;  // 살짝 여유
 
         status.textContent =
-          '프레임 추출 중... (총 ' + captureTimes.length + '장 예정)';
+          '프레임 추출 중... (약 ' +
+          Math.ceil(duration / intervalSec) +
+          '장 예정)';
 
-        for (let i = 0; i < captureTimes.length; i++) {
-          const t = captureTimes[i];
-          status.textContent =
-            '프레임 추출 중... (' + (i + 1) + '/' + captureTimes.length + ')';
+        await new Promise((resolve, reject) => {
+          const onTimeUpdate = async () => {
+            // 현재 시간이 다음 캡처 타임을 지났으면
+            if (videoEl.currentTime + 0.01 >= nextCaptureTime &&
+                nextCaptureTime <= maxTime) {
 
-          const targetTime = await seekTo(t);
+              try {
+                const blob = await captureFrameAsBlob();
+                frames.push(blob);
 
-          // ✅ 실제 currentTime이 우리가 원하는 위치 근처인지 확인
-          const diff = Math.abs(videoEl.currentTime - targetTime);
-          if (diff > 0.3) {
-            console.warn(
-              'seek 실패로 보임, 이 프레임은 스킵',
-              'target=', targetTime,
-              'actual=', videoEl.currentTime
-            );
-            continue; // 같은 장면 복붙 방지
+                const img = new Image();
+                img.src = URL.createObjectURL(blob);
+                img.loading = 'lazy';
+                img.alt = 'frame_' + frames.length;
+                result.appendChild(img);
+              } catch (e) {
+                console.warn('프레임 캡처 실패:', e);
+              }
+
+              nextCaptureTime += intervalSec;
+              status.textContent =
+                '프레임 추출 중... (' +
+                frames.length +
+                '장 캡처됨)';
+            }
+
+            if (nextCaptureTime > maxTime || videoEl.ended) {
+              cleanup();
+              resolve();
+            }
+          };
+
+          const onEnded = () => {
+            cleanup();
+            resolve();
+          };
+
+          const onError = (e) => {
+            console.error('영상 재생 중 오류:', e);
+            cleanup();
+            reject(new Error('영상 재생 중 오류가 발생했습니다.'));
+          };
+
+          const cleanup = () => {
+            videoEl.pause();
+            videoEl.removeEventListener('timeupdate', onTimeUpdate);
+            videoEl.removeEventListener('ended', onEnded);
+            videoEl.removeEventListener('error', onError);
+          };
+
+          videoEl.currentTime = 0;
+          videoEl.addEventListener('timeupdate', onTimeUpdate);
+          videoEl.addEventListener('ended', onEnded);
+          videoEl.addEventListener('error', onError);
+
+          const playPromise = videoEl.play();
+          if (playPromise && playPromise.catch) {
+            playPromise.catch(err => {
+              console.error('play() 실패:', err);
+              cleanup();
+              reject(new Error('영상 재생을 시작하지 못했습니다.'));
+            });
           }
-
-          try {
-            const blob = await captureFrameAsBlob();
-            frames.push(blob);
-
-            const img = new Image();
-            img.src = URL.createObjectURL(blob);
-            img.loading = 'lazy';
-            img.alt = 'frame_' + (i + 1);
-            result.appendChild(img);
-          } catch (e) {
-            console.warn('프레임 캡처 실패, index =', i, e);
-          }
-        }
+        });
 
         status.textContent =
           '완료! 총 ' + frames.length + '장의 프레임이 추출되었습니다 🎉';
@@ -338,7 +311,6 @@
         console.error(e);
         status.textContent = '에러 발생: ' + (e.message || e);
       } finally {
-        // 🔚 여기서만 blob URL 정리
         if (videoUrl) {
           URL.revokeObjectURL(videoUrl);
           videoUrl = null;
@@ -348,7 +320,6 @@
       goBtn.disabled = false;
     }
 
-    // 6. ZIP 다운로드
     async function downloadZip() {
       if (!frames.length) return;
 
@@ -377,7 +348,6 @@
       zipBtn.disabled = false;
     }
 
-    // 전역에서 호출할 수 있도록 window에 붙이기
     window.onVideoChange = onVideoChange;
     window.startExtract  = startExtract;
     window.downloadZip   = downloadZip;
