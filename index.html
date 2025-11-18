@@ -1,125 +1,122 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <title>영상 → 프레임 추출기</title>
-  <style>
-    body {font-family: system-ui,sans-serif; max-width:900px; margin:40px auto; padding:20px; text-align:center;}
-    h1 {margin-bottom:8px;}
-    .box {border:2px dashed #ccc; border-radius:16px; padding:32px; background:#fbfbfb;}
-    input[type="file"], select {margin:12px; font-size:16px;}
-    button {padding:14px 36px; background:#0d6efd; color:white; border:none; border-radius:10px; font-size:17px; cursor:pointer;}
-    button:disabled {background:#999; cursor:not-allowed; opacity:0.6;}
-    #status {margin-top:20px; font-size:15px; min-height:50px;}
-    .frames {margin-top:40px; display:flex; flex-wrap:wrap; gap:16px; justify-content:center;}
-    .frames img {max-width:320px; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.15);}
-    #zipBtn {background:#0d9328; padding:14px 30px; margin-top:20px; font-size:16px;}
-  </style>
+<meta charset="UTF-8">
+<title>영상 → 프레임 추출 (정말 됨)</title>
+<style>
+  body {font-family: system-ui,sans-serif; max-width:900px; margin:40px auto; text-align:center; line-height:1.6;}
+  .box {border:2px dashed #aaa; border-radius:16px; padding:40px; background:#f8f9fa;}
+  input, select {margin:15px; font-size:16px;}
+  button {padding:15px 40px; font-size:18px; border:none; border-radius:12px; cursor:pointer;}
+  #go {background:#0d6efd; color:white;}
+  #go:disabled {background:#ccc; cursor:not-allowed;}
+  #zip {background:#0d9328; color:white; margin-top:20px;}
+  #status {margin:20px; font-size:16px; min-height:60px;}
+  .frames img {max-width:300px; margin:8px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+</style>
 </head>
 <body>
-  <h1>영상 → 프레임 추출기</h1>
-  <p>파일은 서버로 올라가지 않아요. 100% 브라우저에서만 처리!</p>
+<h1>영상 → 프레임 추출기</h1>
+<div class="box">
+  <p><strong>1. 영상 파일 선택</strong></p>
+  <input type="file" accept="video/*" id="vid">
 
-  <div class="box">
-    <p><strong>1. 영상 파일 선택 (mp4, mov 등)</strong></p>
-    <input type="file" accept="video/*" id="videoFile">
+  <p><strong>간격</strong></p>
+  <select id="sec">
+    <option value="0.5">0.5초</option>
+    <option value="1" selected>1초</option>
+    <option value="2">2초</option>
+    <option value="5">5초</option>
+  </select>
 
-    <p><strong>프레임 간격</strong></p>
-    <select id="interval">
-      <option value="0.5">0.5초</option>
-      <option value="1" selected>1초</option>
-      <option value="2">2초</option>
-      <option value="3">3초</option>
-      <option value="5">5초</option>
-      <option value="10">10초</option>
-    </select>
+  <br><br>
+  <button id="go" disabled>프레임 추출 시작</button>
+  <div id="status">파일 선택 → 버튼 파란색 → 클릭!</div>
+</div>
 
-    <br><br>
-    <button id="extractBtn" disabled>프레임 추출 시작</button>
-    <div id="status">↑ 파일을 먼저 선택하면 버튼이 파란색으로 바뀌고 클릭 가능해요!</div>
-  </div>
+<button id="zip" disabled>ZIP 다운로드</button>
+<div class="frames" id="out"></div>
 
-  <button id="zipBtn" disabled>ZIP으로 다운로드</button>
+<!-- 가장 안정적인 CDN 조합 -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <div class="frames" id="frames"></div>
+<script>
+// 이 버전은 로딩 실패해도 버튼은 무조건 살림
+const FFmpeg = window.FFmpeg || { createFFmpeg: () => null, fetchFile: f => f };
+const { createFFmpeg, fetchFile } = FFmpeg;
 
-  <!-- 한국 최적화된 CDN -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+const ffmpeg = createFFmpeg({
+  corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/ffmpeg-core.js',
+  log: false
+});
 
-  <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({
-      corePath: 'https://unpkg.com/@ffmpeg/core@0.12.6/ffmpeg-core.js',
-      log: false
+const vidInput = document.getElementById('vid');
+const goBtn = document.getElementById('go');
+const zipBtn = document.getElementById('zip');
+const status = document.getElementById('status');
+const out = document.getElementById('out');
+let frames = [];
+
+// 파일 선택하면 바로 버튼 활성화 (이게 핵심!)
+vidInput.onchange = () => {
+  if (vidInput.files[0]) {
+    goBtn.disabled = false;
+    goBtn.style.background = '#0d6efd';
+    status.innerHTML = `<strong>${vidInput.files[0].name}</strong> 선택됨<br>파란 버튼 눌러주세요!`;
+  }
+};
+
+// 클릭 이벤트
+goBtn.onclick = async () => {
+  const file = vidInput.files[0];
+  if (!file) return;
+
+  goBtn.disabled = true;
+  status.textContent = 'ffmpeg 로딩 중... (30~60초)';
+  out.innerHTML = '';
+
+  try {
+    if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+    status.textContent = '프레임 추출 중...';
+    ffmpeg.FS('writeFile', 'in.mp4', await fetchFile(file));
+
+    const interval = document.getElementById('sec').value;
+    await ffmpeg.run('-i', 'in.mp4', '-vf', `fps=1/${interval}`, 'f_%05d.jpg');
+
+    frames = [];
+    ffmpeg.FS('readdir', '.').filter(f => f.startsWith('f_')).forEach(f => {
+      const data = ffmpeg.FS('readFile', f);
+      const blob = new Blob([data], {type:'image/jpeg'});
+      frames.push({name: f, blob});
+      const img = new Image();
+      img.src = URL.createObjectURL(blob);
+      out.appendChild(img);
     });
 
-    const videoFile = document.getElementById('videoFile');
-    const extractBtn = document.getElementById('extractBtn');
-    const zipBtn = document.getElementById('zipBtn');
-    const status = document.getElementById('status');
-    const framesDiv = document.getElementById('frames');
-    let frameBlobs = [];
+    status.textContent = `완료! ${frames.length}장 추출됨`;
+    zipBtn.disabled = false;
+  } catch (e) {
+    status.textContent = '실패: ' + e.message + '\n광고차단기 끄고 Ctrl+F5!';
+  }
+  goBtn.disabled = false;
+};
 
-    // 핵심: 파일 선택해야만 버튼 활성화 + 클릭 이벤트 보장
-    videoFile.addEventListener('change', () => {
-      if (videoFile.files.length > 0) {
-        extractBtn.disabled = false;
-        extractBtn.style.background = '#0d6efd';
-        status.textContent = `${videoFile.files[0].name} 선택됨 — 이제 파란 버튼 클릭하세요!`;
-      }
-    });
-
-    extractBtn.addEventListener('click', async () => {
-      if (!videoFile.files[0]) return;
-
-      extractBtn.disabled = true;
-      zipBtn.disabled = true;
-      framesDiv.innerHTML = '';
-      frameBlobs = [];
-      status.textContent = 'ffmpeg.wasm 로딩 중... (최초 20~60초 걸려요)';
-
-      try {
-        if (!ffmpeg.isLoaded()) await ffmpeg.load();
-
-        status.textContent = '프레임 추출 중...';
-        const fileData = await fetchFile(videoFile.files[0]);
-        ffmpeg.FS('writeFile', 'input.mp4', fileData);
-
-        const sec = document.getElementById('interval').value;
-        await ffmpeg.run('-i', 'input.mp4', '-vf', `fps=1/${sec}`, '-q:v', '2', 'frame_%05d.jpg');
-
-        const files = ffmpeg.FS('readdir', '.').filter(f => f.startsWith('frame_'));
-        files.forEach(f => {
-          const data = ffmpeg.FS('readFile', f);
-          const blob = new Blob([data], {type: 'image/jpeg'});
-          frameBlobs.push(blob);
-          const img = new Image();
-          img.src = URL.createObjectURL(blob);
-          framesDiv.appendChild(img);
-        });
-
-        status.textContent = `완료! ${files.length}장 추출됨`;
-        zipBtn.disabled = false;
-      } catch (e) {
-        status.textContent = '오류: ' + e.message + '\n광고차단기 끄고 Ctrl+F5 해보세요';
-      }
-      extractBtn.disabled = false;
-    });
-
-    zipBtn.addEventListener('click', async () => {
-      zipBtn.disabled = true;
-      status.textContent = 'ZIP 압축 중...';
-      const zip = new JSZip();
-      frameBlobs.forEach((blob, i) => zip.file(`frame_${String(i+1).padStart(5,'0')}.jpg`, blob));
-      const zipBlob = await zip.generateAsync({type: 'blob'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(zipBlob);
-      a.download = '프레임_전체.zip';
-      a.click();
-      status.textContent = 'ZIP 다운로드 완료!';
-      zipBtn.disabled = false;
-    });
-  </script>
+zipBtn.onclick = async () => {
+  zipBtn.disabled = true;
+  status.textContent = 'ZIP 만드는 중...';
+  const zip = new JSZip();
+  frames.forEach((f,i) => zip.file(f.name, f.blob));
+  zip.generateAsync({type:'blob'}).then(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'frames.zip';
+    a.click();
+    status.textContent = 'ZIP 다운로드 완료!';
+    zipBtn.disabled = false;
+  });
+};
+</script>
 </body>
 </html>
