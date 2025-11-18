@@ -78,6 +78,34 @@
   <div class="upload-box">
     <div>1. 영상 파일 선택 (mp4, mov 등)</div>
     <input id="videoInput" type="file" accept="video/*" />
+
+    <!-- 🔥 프레임 간격 선택 (0.5초 ~ 10초, 0.5초 단위) -->
+    <div style="margin-top:10px;">
+      프레임 간격 선택 :
+      <select id="intervalSelect">
+        <option value="0.5">0.5초</option>
+        <option value="1" selected>1초</option>
+        <option value="1.5">1.5초</option>
+        <option value="2">2초</option>
+        <option value="2.5">2.5초</option>
+        <option value="3">3초</option>
+        <option value="3.5">3.5초</option>
+        <option value="4">4초</option>
+        <option value="4.5">4.5초</option>
+        <option value="5">5초</option>
+        <option value="5.5">5.5초</option>
+        <option value="6">6초</option>
+        <option value="6.5">6.5초</option>
+        <option value="7">7초</option>
+        <option value="7.5">7.5초</option>
+        <option value="8">8초</option>
+        <option value="8.5">8.5초</option>
+        <option value="9">9초</option>
+        <option value="9.5">9.5초</option>
+        <option value="10">10초</option>
+      </select>
+    </div>
+
     <div>2. 아래 버튼 클릭해서 프레임 추출</div>
     <button id="extractBtn">프레임 추출하기</button>
     <div id="status"></div>
@@ -98,6 +126,7 @@
   <script>
     window.addEventListener('DOMContentLoaded', () => {
       const videoInput = document.getElementById('videoInput');
+      const intervalSelect = document.getElementById('intervalSelect');
       const extractBtn = document.getElementById('extractBtn');
       const downloadZipBtn = document.getElementById('downloadZipBtn');
       const statusEl = document.getElementById('status');
@@ -177,11 +206,16 @@
 
           await ffmpeg.FS('writeFile', inputName, await fetchFileFn(selectedFile));
 
-          statusEl.textContent = '프레임 추출 중입니다...\n영상 길이에 따라 시간이 조금 걸릴 수 있어요.';
+          // 🔥 프레임 간격(초) → FPS로 변환
+          const interval = parseFloat(intervalSelect.value) || 1; // 초
+          const fpsValue = 1 / interval; // ex) 0.5초 → 2fps, 2초 → 0.5fps
+
+          statusEl.textContent =
+            `프레임 추출 중입니다...\n(설정된 간격: ${interval}초, fps ≈ ${fpsValue.toFixed(3)})\n영상 길이에 따라 시간이 조금 걸릴 수 있어요.`;
 
           await ffmpeg.run(
             '-i', inputName,
-            '-vf', 'fps=1',
+            '-vf', `fps=${fpsValue}`,
             'frame_%03d.jpg'
           );
 
@@ -215,7 +249,7 @@
             statusEl.textContent = '추출된 프레임이 없습니다. (영상 포맷 문제일 수 있어요)';
             downloadZipBtn.disabled = true;
           } else {
-            statusEl.textContent = `✅ 프레임 ${found}장이 추출되었습니다. 아래에서 확인하세요.`;
+            statusEl.textContent = `✅ 프레임 ${found}장이 추출되었습니다.\n(간격: ${interval}초)\n아래 이미지와 ZIP 다운로드 버튼을 확인하세요.`;
             downloadZipBtn.disabled = false;
           }
         } catch (err) {
@@ -253,5 +287,19 @@
           a.href = url;
           a.download = 'frames.zip';
           document.body.appendChild(a);
-          a.cl
-::contentReference[oaicite:0]{index=0}
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+
+          statusEl.textContent = '✅ ZIP 파일 다운로드가 완료되었습니다.';
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = 'ZIP 생성 중 오류가 발생했습니다: ' + err;
+        } finally {
+          downloadZipBtn.disabled = false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>
