@@ -77,11 +77,11 @@
       justify-content: center;
     }
     .frames img {
-      max-width: 320px;   /* 썸네일 표시용 크기 (다운로드 화질엔 영향 없음) */
+      max-width: 220px;
       border-radius: 12px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+      object-fit: cover;
     }
-    /* 제작자 배지 */
     .creator-badge {
       display: inline-block;
       padding: 4px 12px;
@@ -96,7 +96,6 @@
   </style>
 </head>
 <body>
-  <!-- 제작자 배지 -->
   <div class="creator-badge">제작자 : 자돈</div>
 
   <h1>영상 → 프레임 추출기</h1>
@@ -109,10 +108,9 @@
     <p style="margin-top:20px;"><strong>프레임 간격</strong></p>
     <select id="interval">
       <option value="0.5">0.5초</option>
-      <option value="1" selected>1초 (추천)</option>
+      <option value="1" selected>1초</option>
       <option value="2">2초</option>
       <option value="5">5초</option>
-      <option value="10">10초</option>
     </select>
 
     <br><br>
@@ -124,256 +122,145 @@
 
   <div class="frames" id="result"></div>
 
-  <!-- ZIP 라이브러리 (레포에 jszip.min.js 있어야 함) -->
-  <script src="jszip.min.js"></script>
+<script src="jszip.min.js"></script>
 
-  <script>
-    const goBtn   = document.getElementById('go');
-    const zipBtn  = document.getElementById('zip');
-    const status  = document.getElementById('status');
-    const result  = document.getElementById('result');
+<script>
+const goBtn = document.getElementById("go");
+const zipBtn = document.getElementById("zip");
+const status = document.getElementById("status");
+const result = document.getElementById("result");
 
-    const videoEl = document.createElement('video');
-    videoEl.style.display = 'none';
-    videoEl.muted = true;
-    videoEl.playsInline = true;
+const videoEl = document.createElement("video");
+videoEl.style.display = "none";
+videoEl.muted = true;
+videoEl.playsInline = true;
 
-    const canvas  = document.createElement('canvas');
-    canvas.style.display = 'none';
-    const ctx = canvas.getContext('2d');
+const canvas = document.createElement("canvas");
+canvas.style.display = "none";
+const ctx = canvas.getContext("2d");
 
-    document.body.appendChild(videoEl);
-    document.body.appendChild(canvas);
+document.body.appendChild(videoEl);
+document.body.appendChild(canvas);
 
-    let selectedFile = null;
-    let videoUrl = null;
-    let frames = [];
-    let naturalWidth = 0;
-    let naturalHeight = 0;
+let selectedFile = null;
+let videoUrl = null;
+let frames = [];
 
-    function onVideoChange(input) {
-      const file = input.files[0];
-      if (file) {
-        selectedFile = file;
-        goBtn.disabled = false;
-        status.innerHTML =
-          '<strong>' + file.name + '</strong><br>파란 버튼을 누르면 프레임을 추출합니다!';
+function onVideoChange(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  selectedFile = file;
+  goBtn.disabled = false;
+  status.innerHTML = `<strong>${file.name}</strong><br>파란 버튼을 누르면 프레임을 추출합니다!`;
+}
+
+async function waitForVideoReady(video) {
+  return new Promise(resolve => {
+    function check() {
+      if (video.readyState >= 4 && video.videoWidth > 0 && video.videoHeight > 0) {
+        resolve();
       } else {
-        selectedFile = null;
-        goBtn.disabled = true;
-        status.textContent = '파일을 다시 선택해 주세요.';
+        requestAnimationFrame(check);
       }
     }
+    check();
+  });
+}
 
-    function loadVideoMetadata(file) {
-      return new Promise((resolve, reject) => {
-        if (videoUrl) {
-          URL.revokeObjectURL(videoUrl);
-          videoUrl = null;
-        }
-        videoUrl = URL.createObjectURL(file);
-        videoEl.src = videoUrl;
+async function loadVideo(file) {
+  return new Promise((resolve, reject) => {
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
 
-        const cleanup = () => {
-          videoEl.removeEventListener('loadedmetadata', onMeta);
-          videoEl.removeEventListener('loadeddata', onData);
-          videoEl.removeEventListener('error', onError);
-        };
+    videoUrl = URL.createObjectURL(file);
+    videoEl.src = videoUrl;
 
-        const onMeta = () => {
-          // 일부 브라우저는 loadedmetadata 때 width/height가 0일 수 있어서,
-          // 실제 프레임이 로드되는 loadeddata까지도 한 번 더 기다림
-        };
+    videoEl.onerror = () => reject("영상 로드 실패");
+    videoEl.onloadeddata = () => resolve();
+  });
+}
 
-        const onData = () => {
-          cleanup();
-          naturalWidth  = videoEl.videoWidth;
-          naturalHeight = videoEl.videoHeight;
-          resolve();
-        };
+function captureFrame() {
+  return new Promise((resolve, reject) => {
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
 
-        const onError = () => {
-          cleanup();
-          reject(new Error('영상 메타데이터를 불러오지 못했습니다.'));
-        };
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
-        videoEl.addEventListener('loadedmetadata', onMeta);
-        videoEl.addEventListener('loadeddata', onData);
-        videoEl.addEventListener('error', onError);
-      });
+    canvas.toBlob(
+      blob => (blob ? resolve(blob) : reject("toBlob 실패")),
+      "image/jpeg",
+      0.98
+    );
+  });
+}
+
+async function startExtract() {
+  if (!selectedFile) return;
+
+  goBtn.disabled = true;
+  zipBtn.disabled = true;
+  result.innerHTML = "";
+  frames = [];
+  status.textContent = "영상 로딩 중...";
+
+  try {
+    await loadVideo(selectedFile);
+    await waitForVideoReady(videoEl);
+
+    const duration = videoEl.duration;
+    const interval = parseFloat(document.getElementById("interval").value);
+
+    let nextCapture = 0;
+    status.textContent = "추출 중...";
+
+    await videoEl.play();
+
+    while (nextCapture <= duration) {
+      await new Promise(r => setTimeout(r, interval * 1000));
+
+      const blob = await captureFrame();
+      frames.push(blob);
+
+      const img = new Image();
+      img.src = URL.createObjectURL(blob);
+      img.loading = "lazy";
+      result.appendChild(img);
+
+      nextCapture += interval;
+      status.textContent = `추출 중... (${frames.length}장)`;
     }
 
-    function ensureCanvasSize() {
-      if (!naturalWidth || !naturalHeight) {
-        // 혹시라도 못 얻었으면 한 번 더 시도
-        naturalWidth  = videoEl.videoWidth  || naturalWidth  || 640;
-        naturalHeight = videoEl.videoHeight || naturalHeight || 360;
-      }
-      if (!canvas.width || !canvas.height) {
-        canvas.width  = naturalWidth;
-        canvas.height = naturalHeight;
-      }
-    }
+    videoEl.pause();
 
-    function captureFrameAsBlob() {
-      return new Promise((resolve, reject) => {
-        try {
-          ensureCanvasSize();
+    status.textContent = `완료! 총 ${frames.length}장 추출됨 🎉`;
+    zipBtn.disabled = false;
 
-          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+  } catch (e) {
+    console.error(e);
+    status.textContent = "에러: " + e;
+  }
+}
 
-          canvas.toBlob((blob) => {
-            if (!blob) {
-              reject(new Error('프레임 캡처에 실패했습니다.'));
-            } else {
-              // 화질 최대한 유지 (0.98)
-              resolve(blob);
-            }
-          }, 'image/jpeg', 0.98);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }
+async function downloadZip() {
+  if (!frames.length) return;
 
-    async function startExtract() {
-      if (!selectedFile) return;
+  zipBtn.disabled = true;
+  status.textContent = "ZIP 생성 중...";
 
-      goBtn.disabled  = true;
-      zipBtn.disabled = true;
-      result.innerHTML = '';
-      frames = [];
-      status.textContent = '영상 로딩 중...';
+  const zip = new JSZip();
+  frames.forEach((b, i) => zip.file(`frame_${String(i+1).padStart(4,"0")}.jpg`, b));
 
-      try {
-        await loadVideoMetadata(selectedFile);
+  const blob = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "frames.zip";
+  a.click();
 
-        const duration    = videoEl.duration;
-        const intervalSec = parseFloat(document.getElementById('interval').value);
+  zipBtn.disabled = false;
+  status.textContent = "ZIP 다운로드 완료!";
+}
+</script>
 
-        if (!isFinite(duration) || duration <= 0) {
-          throw new Error('영상 길이를 가져오지 못했습니다.');
-        }
-
-        let nextCaptureTime = 0;
-        const maxTime = duration + 0.05;
-
-        status.textContent =
-          '프레임 추출 중... (약 ' +
-          Math.ceil(duration / intervalSec) +
-          '장 예정)';
-
-        await new Promise((resolve, reject) => {
-          const onTimeUpdate = async () => {
-            if (videoEl.currentTime + 0.01 >= nextCaptureTime &&
-                nextCaptureTime <= maxTime) {
-
-              try {
-                const blob = await captureFrameAsBlob();
-                frames.push(blob);
-
-                const img = new Image();
-                img.src = URL.createObjectURL(blob);
-                img.loading = 'lazy';
-                img.alt = 'frame_' + frames.length;
-                result.appendChild(img);
-              } catch (e) {
-                console.warn('프레임 캡처 실패:', e);
-              }
-
-              nextCaptureTime += intervalSec;
-              status.textContent =
-                '프레임 추출 중... (' +
-                frames.length +
-                '장 캡처됨)';
-            }
-
-            if (nextCaptureTime > maxTime || videoEl.ended) {
-              cleanup();
-              resolve();
-            }
-          };
-
-          const onEnded = () => {
-            cleanup();
-            resolve();
-          };
-
-          const onError = (e) => {
-            console.error('영상 재생 중 오류:', e);
-            cleanup();
-            reject(new Error('영상 재생 중 오류가 발생했습니다.'));
-          };
-
-          const cleanup = () => {
-            videoEl.pause();
-            videoEl.removeEventListener('timeupdate', onTimeUpdate);
-            videoEl.removeEventListener('ended', onEnded);
-            videoEl.removeEventListener('error', onError);
-          };
-
-          videoEl.currentTime = 0;
-          videoEl.addEventListener('timeupdate', onTimeUpdate);
-          videoEl.addEventListener('ended', onEnded);
-          videoEl.addEventListener('error', onError);
-
-          const playPromise = videoEl.play();
-          if (playPromise && playPromise.catch) {
-            playPromise.catch(err => {
-              console.error('play() 실패:', err);
-              cleanup();
-              reject(new Error('영상 재생을 시작하지 못했습니다.'));
-            });
-          }
-        });
-
-        status.textContent =
-          '완료! 총 ' + frames.length + '장의 프레임이 추출되었습니다 🎉';
-        zipBtn.disabled = frames.length === 0;
-      } catch (e) {
-        console.error(e);
-        status.textContent = '에러 발생: ' + (e.message || e);
-      } finally {
-        if (videoUrl) {
-          URL.revokeObjectURL(videoUrl);
-          videoUrl = null;
-        }
-      }
-
-      goBtn.disabled = false;
-    }
-
-    async function downloadZip() {
-      if (!frames.length) return;
-
-      zipBtn.disabled = true;
-      status.textContent = 'ZIP 파일 생성 중...';
-
-      try {
-        const zip = new JSZip();
-        frames.forEach((blob, i) => {
-          zip.file('frame_' + String(i + 1).padStart(4, '0') + '.jpg', blob);
-        });
-
-        const content = await zip.generateAsync({ type: 'blob' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = 'frames.zip';
-        a.click();
-
-        status.textContent = 'ZIP 다운로드 완료!';
-      } catch (e) {
-        console.error(e);
-        status.textContent =
-          'ZIP 생성 중 에러 발생: ' + (e.message || e);
-      }
-
-      zipBtn.disabled = false;
-    }
-
-    window.onVideoChange = onVideoChange;
-    window.startExtract  = startExtract;
-    window.downloadZip   = downloadZip;
-  </script>
 </body>
 </html>
