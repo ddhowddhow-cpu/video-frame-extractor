@@ -4,9 +4,20 @@
   <meta charset="UTF-8">
   <title>영상 → 프레임 추출기</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- 개인용 도구 기준 CSP (ffmpeg.wasm 때문에 unsafe-eval 허용) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' https://cdn.jsdelivr.net blob: data:;
+          script-src  'self' https://cdn.jsdelivr.net 'unsafe-eval';
+          connect-src 'self' https://cdn.jsdelivr.net blob: data:;
+          img-src     'self' blob: data:;
+          style-src   'self' 'unsafe-inline';
+        ">
+
   <style>
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       max-width: 900px;
       margin: 40px auto;
       text-align: center;
@@ -113,37 +124,31 @@
   <script src="jszip.min.js"></script>
 
   <script>
-    const videoInput = document.getElementById("video");
-    const goBtn = document.getElementById("go");
-    const zipBtn = document.getElementById("zip");
-    const status = document.getElementById("status");
-    const result = document.getElementById("result");
+    const videoInput = document.getElementById('video');
+    const goBtn = document.getElementById('go');
+    const zipBtn = document.getElementById('zip');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
     let frames = [];
 
     let ffmpeg = null;
     let fetchFileFn = null;
 
-    // ffmpeg 로딩 보장
     async function ensureFFmpeg() {
       if (ffmpeg) return;
 
       if (!window.FFmpeg) {
-        throw new Error("FFmpeg 전역 객체가 없습니다. ffmpeg.min.js 로딩 실패.");
+        throw new Error('FFmpeg 전역 객체가 없습니다. ffmpeg.min.js 로딩 실패.');
       }
 
       const { createFFmpeg, fetchFile } = window.FFmpeg;
       fetchFileFn = fetchFile;
 
-      // corePath 지정 없이, CDN에서 알아서 core/wasm 로딩
-      ffmpeg = createFFmpeg({
-        log: false
-      });
-
+      ffmpeg = createFFmpeg({ log: false });
       await ffmpeg.load();
     }
 
-    // 파일 선택 → 버튼 활성화
-    videoInput.addEventListener("change", () => {
+    videoInput.addEventListener('change', () => {
       if (videoInput.files[0]) {
         goBtn.disabled = false;
         status.innerHTML =
@@ -151,45 +156,42 @@
       }
     });
 
-    // 프레임 추출
-    goBtn.addEventListener("click", async () => {
+    goBtn.addEventListener('click', async () => {
       const file = videoInput.files[0];
       if (!file) return;
 
       goBtn.disabled = true;
       zipBtn.disabled = true;
-      result.innerHTML = "";
+      result.innerHTML = '';
       frames = [];
-      status.textContent = "ffmpeg 로딩 중... (처음은 10~40초 걸릴 수 있음)";
+      status.textContent = 'ffmpeg 로딩 중... (처음은 10~40초 걸릴 수 있음)';
 
       try {
         await ensureFFmpeg();
 
-        status.textContent = "프레임 추출 중...";
+        status.textContent = '프레임 추출 중...';
 
-        // 입력 영상 메모리 FS에 쓰기
-        ffmpeg.FS("writeFile", "input.mp4", await fetchFileFn(file));
+        ffmpeg.FS('writeFile', 'input.mp4', await fetchFileFn(file));
 
-        const sec = document.getElementById("interval").value;
+        const sec = document.getElementById('interval').value;
 
-        // fps=1/sec → sec초마다 1프레임
         await ffmpeg.run(
-          "-i", "input.mp4",
-          "-vf", `fps=1/${sec}`,
-          "-q:v", "2",
-          "frame_%05d.jpg"
+          '-i', 'input.mp4',
+          '-vf', `fps=1/${sec}`,
+          '-q:v', '2',
+          'frame_%05d.jpg'
         );
 
-        const files = ffmpeg.FS("readdir", ".").filter(f => f.startsWith("frame_"));
+        const files = ffmpeg.FS('readdir', '.').filter(f => f.startsWith('frame_'));
 
         files.forEach(f => {
-          const data = ffmpeg.FS("readFile", f);
-          const blob = new Blob([data.buffer], { type: "image/jpeg" });
+          const data = ffmpeg.FS('readFile', f);
+          const blob = new Blob([data.buffer], { type: 'image/jpeg' });
           frames.push(blob);
 
           const img = new Image();
           img.src = URL.createObjectURL(blob);
-          img.loading = "lazy";
+          img.loading = 'lazy';
           result.appendChild(img);
         });
 
@@ -203,25 +205,24 @@
       goBtn.disabled = false;
     });
 
-    // ZIP 다운로드
-    zipBtn.addEventListener("click", async () => {
+    zipBtn.addEventListener('click', async () => {
       if (!frames.length) return;
 
       zipBtn.disabled = true;
-      status.textContent = "ZIP 파일 생성 중...";
+      status.textContent = 'ZIP 파일 생성 중...';
 
       const zip = new JSZip();
       frames.forEach((blob, i) => {
-        zip.file(`frame_${String(i + 1).padStart(4, "0")}.jpg`, blob);
+        zip.file(`frame_${String(i + 1).padStart(4, '0')}.jpg`, blob);
       });
 
-      const content = await zip.generateAsync({ type: "blob" });
-      const a = document.createElement("a");
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
       a.href = URL.createObjectURL(content);
-      a.download = "frames.zip";
+      a.download = 'frames.zip';
       a.click();
 
-      status.textContent = "ZIP 다운로드 완료!";
+      status.textContent = 'ZIP 다운로드 완료!';
       zipBtn.disabled = false;
     });
   </script>
