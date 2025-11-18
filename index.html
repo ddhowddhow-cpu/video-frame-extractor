@@ -77,7 +77,7 @@
       justify-content: center;
     }
     .frames img {
-      max-width: 320px;
+      max-width: 320px;   /* 썸네일 표시용 크기 (다운로드 화질엔 영향 없음) */
       border-radius: 12px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.12);
     }
@@ -148,6 +148,8 @@
     let selectedFile = null;
     let videoUrl = null;
     let frames = [];
+    let naturalWidth = 0;
+    let naturalHeight = 0;
 
     function onVideoChange(input) {
       const file = input.files[0];
@@ -172,29 +174,51 @@
         videoUrl = URL.createObjectURL(file);
         videoEl.src = videoUrl;
 
-        const onLoaded = () => {
-          videoEl.removeEventListener('loadedmetadata', onLoaded);
+        const cleanup = () => {
+          videoEl.removeEventListener('loadedmetadata', onMeta);
+          videoEl.removeEventListener('loadeddata', onData);
           videoEl.removeEventListener('error', onError);
+        };
+
+        const onMeta = () => {
+          // 일부 브라우저는 loadedmetadata 때 width/height가 0일 수 있어서,
+          // 실제 프레임이 로드되는 loadeddata까지도 한 번 더 기다림
+        };
+
+        const onData = () => {
+          cleanup();
+          naturalWidth  = videoEl.videoWidth;
+          naturalHeight = videoEl.videoHeight;
           resolve();
         };
+
         const onError = () => {
-          videoEl.removeEventListener('loadedmetadata', onLoaded);
-          videoEl.removeEventListener('error', onError);
+          cleanup();
           reject(new Error('영상 메타데이터를 불러오지 못했습니다.'));
         };
 
-        videoEl.addEventListener('loadedmetadata', onLoaded);
+        videoEl.addEventListener('loadedmetadata', onMeta);
+        videoEl.addEventListener('loadeddata', onData);
         videoEl.addEventListener('error', onError);
       });
+    }
+
+    function ensureCanvasSize() {
+      if (!naturalWidth || !naturalHeight) {
+        // 혹시라도 못 얻었으면 한 번 더 시도
+        naturalWidth  = videoEl.videoWidth  || naturalWidth  || 640;
+        naturalHeight = videoEl.videoHeight || naturalHeight || 360;
+      }
+      if (!canvas.width || !canvas.height) {
+        canvas.width  = naturalWidth;
+        canvas.height = naturalHeight;
+      }
     }
 
     function captureFrameAsBlob() {
       return new Promise((resolve, reject) => {
         try {
-          if (!canvas.width || !canvas.height) {
-            canvas.width  = videoEl.videoWidth  || 640;
-            canvas.height = videoEl.videoHeight || 360;
-          }
+          ensureCanvasSize();
 
           ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
 
@@ -202,9 +226,10 @@
             if (!blob) {
               reject(new Error('프레임 캡처에 실패했습니다.'));
             } else {
+              // 화질 최대한 유지 (0.98)
               resolve(blob);
             }
-          }, 'image/jpeg', 0.9);
+          }, 'image/jpeg', 0.98);
         } catch (e) {
           reject(e);
         }
@@ -230,9 +255,8 @@
           throw new Error('영상 길이를 가져오지 못했습니다.');
         }
 
-        // 재생 시작 상태로 두고, 시간 흐르면서 캡처
         let nextCaptureTime = 0;
-        const maxTime = duration + 0.05;  // 살짝 여유
+        const maxTime = duration + 0.05;
 
         status.textContent =
           '프레임 추출 중... (약 ' +
@@ -241,7 +265,6 @@
 
         await new Promise((resolve, reject) => {
           const onTimeUpdate = async () => {
-            // 현재 시간이 다음 캡처 타임을 지났으면
             if (videoEl.currentTime + 0.01 >= nextCaptureTime &&
                 nextCaptureTime <= maxTime) {
 
