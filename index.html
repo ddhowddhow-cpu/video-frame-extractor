@@ -41,14 +41,17 @@
   <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
   <div class="frames" id="result"></div>
 
-  <!-- 진짜 살아있는 ST 버전 (dist 폴더 추가) -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-  <script src="https://unpkg.com/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js"></script>
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
+    // 네 깃허브에 직접 올린 파일 사용 (이게 핵심!)
     const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: false });
+    const ffmpeg = createFFmpeg({
+      log: false,
+      corePath: 'https://ddhowddhow-cpu.github.io/video-frame-extractor/ffmpeg-core.js',
+      wasmPath: 'https://ddhowddhow-cpu.github.io/video-frame-extractor/ffmpeg-core.wasm'
+    });
 
     const videoInput = document.getElementById('video');
     const goBtn = document.getElementById('go');
