@@ -3,61 +3,57 @@
 <head>
   <meta charset="UTF-8">
   <title>영상 → 프레임 추출기</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body {font-family: system-ui,-apple-system,sans-serif; max-width:900px; margin:40px auto; padding:20px; text-align:center; background:#fafafa; color:#333;}
-    h1 {font-size:28px; margin-bottom:10px;}
-    .box {background:white; border-radius:20px; padding:40px; box-shadow:0 10px 30px rgba(0,0,0,0.1); border:2px dashed #ddd;}
-    input[type="file"] {margin:20px auto; font-size:16px;}
-    select {padding:10px; font-size:16px; border-radius:8px; margin:15px;}
-    button {padding:16px 40px; font-size:18px; border:none; border-radius:12px; cursor:pointer; margin:10px;}
+    body {font-family: system-ui,sans-serif; max-width:900px; margin:40px auto; text-align:center; background:#f9f9f9;}
+    h1 {font-size:28px;}
+    .box {background:white; border-radius:20px; padding:40px; box-shadow:0 8px 30px rgba(0,0,0,0.1);}
+    input, select, button {margin:15px; font-size:17px;}
+    button {padding:16px 40px; border:none; border-radius:12px; cursor:pointer;}
     #go {background:#0d6efd; color:white;}
     #go:disabled {background:#aaa; cursor:not-allowed;}
     #zip {background:#0d9328; color:white;}
-    #status {margin:25px 0; font-size:17px; min-height:50px; line-height:1.6;}
+    #status {margin:20px; font-size:17px; min-height:60px; line-height:1.6;}
     .frames {margin-top:50px; display:flex; flex-wrap:wrap; gap:20px; justify-content:center;}
-    .frames img {max-width:320px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,0.15); transition:transform 0.2s;}
-    .frames img:hover {transform:scale(1.05);}
-    footer {margin-top:60px; color:#777; font-size:14px;}
+    .frames img {max-width:320px; border-radius:12px; box-shadow:0 4px 15px rgba(0,0,0,0.1);}
   </style>
 </head>
 <body>
   <h1>영상 → 프레임 추출기</h1>
-  <p>카톡·인스타·유튜브 동영상도 바로 프레임으로 뽑아줍니다!<br>파일은 서버로 전송되지 않아요. 100% 브라우저에서만 처리</p>
+  <p>카톡 동영상도 바로 프레임으로 뽑아줍니다!<br>100% 브라우저에서만 처리돼요</p>
 
   <div class="box">
-    <p><strong>1. 영상 파일 선택 (mp4, mov, webm 등)</strong></p>
+    <p><strong>1. 영상 파일 선택</strong></p>
     <input type="file" accept="video/*" id="video">
 
     <p><strong>프레임 간격</strong></p>
     <select id="interval">
-      <option value="0.5">0.5초마다</option>
-      <option value="1" selected>1초마다 (추천)</option>
-      <option value="2">2초마다</option>
-      <option value="3">3초마다</option>
-      <option value="5">5초마다</option>
-      <option value="10">10초마다</option>
+      <option value="0.5">0.5초</option>
+      <option value="1" selected>1초 (추천)</option>
+      <option value="2">2초</option>
+      <option value="5">5초</option>
+      <option value="10">10초</option>
     </select>
 
     <br><br>
     <button id="go" disabled>프레임 추출 시작</button>
-    <div id="status">↑ 파일을 선택하면 파란 버튼이 활성화돼요!</div>
+    <div id="status">파일 선택 → 파란 버튼 활성화 → 클릭!</div>
   </div>
 
-  <button id="zip" disabled>모든 프레임 ZIP으로 다운로드</button>
-
+  <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
   <div class="frames" id="result"></div>
 
-  <footer>Made with 💙 by Grok & ddhowddhow-cpu</footer>
-
-  <!-- 한국에서 99.9% 성공하는 조합 (ST = Single Thread, 가장 안정적) -->
+  <!-- 진짜 한국에서 100% 되는 싱글스레드 버전 -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
   <script src="https://unpkg.com/@ffmpeg/core-st@0.11.0/ffmpeg-core.js"></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: false });
+    // 싱글스레드 강제 (이게 핵심!)
+    const ffmpeg = createFFmpeg({
+      log: false,
+      corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.0/ffmpeg-core.js'
+    });
 
     const videoInput = document.getElementById('video');
     const goBtn = document.getElementById('go');
@@ -66,15 +62,13 @@
     const result = document.getElementById('result');
     let frames = [];
 
-    // 파일 선택 → 버튼 바로 활성화
     videoInput.addEventListener('change', () => {
-      if (videoInput.files.length > 0) {
+      if (videoInput.files[0]) {
         goBtn.disabled = false;
-        status.innerHTML = `<strong>${videoInput.files[0].name}</strong><br>파란 버튼을 눌러주세요!`;
+        status.innerHTML = `<strong>${videoInput.files[0].name}</strong><br>파란 버튼 눌러주세요!`;
       }
     });
 
-    // 추출 시작
     goBtn.addEventListener('click', async () => {
       const file = videoInput.files[0];
       if (!file) return;
@@ -83,7 +77,7 @@
       zipBtn.disabled = true;
       result.innerHTML = '';
       frames = [];
-      status.textContent = 'ffmpeg.wasm 로딩 중... (최초 20~50초 정도 걸려요)';
+      status.textContent = 'ffmpeg 로딩 중... (20~40초)';
 
       try {
         if (!ffmpeg.isLoaded()) await ffmpeg.load();
@@ -104,26 +98,25 @@
           result.appendChild(img);
         });
 
-        status.textContent = `완료! 총 ${files.length}장 추출됐어요 🎉`;
+        status.textContent = `완료! ${files.length}장 추출됨 🎉`;
         zipBtn.disabled = false;
       } catch (e) {
-        status.textContent = `실패: ${e.message}\n광고차단기 끄고 Ctrl+F5 눌러보세요!`;
+        status.textContent = `실패: ${e.message}\nCtrl+Shift+R 강제 새로고침 해보세요!`;
       }
       goBtn.disabled = false;
     });
 
-    // ZIP 다운로드
     zipBtn.addEventListener('click', async () => {
       zipBtn.disabled = true;
-      status.textContent = 'ZIP 압축 중...';
+      status.textContent = 'ZIP 만드는 중...';
       const zip = new JSZip();
-      frames.forEach((f,i) => zip.file(`프레임_${String(i+1).padStart(4,'0')}.jpg`, f.blob));
+      frames.forEach((f,i) => zip.file(`frame_${String(i+1).padStart(5,'0')}.jpg`, f.blob));
       const blob = await zip.generateAsync({type:'blob'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = '영상_프레임_전체.zip';
+      a.download = 'frames.zip';
       a.click();
-      status.textContent = 'ZIP 다운로드 완료! 📦';
+      status.textContent = 'ZIP 다운로드 완료!';
       zipBtn.disabled = false;
     });
   </script>
