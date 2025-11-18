@@ -79,7 +79,7 @@
     <div>1. 영상 파일 선택 (mp4, mov 등)</div>
     <input id="videoInput" type="file" accept="video/*" />
 
-    <!-- 🔥 프레임 간격 선택 (0.5초 ~ 10초, 0.5초 단위) -->
+    <!-- 프레임 간격 선택 (0.5초 ~ 10초, 0.5초 단위) -->
     <div style="margin-top:10px;">
       프레임 간격 선택 :
       <select id="intervalSelect">
@@ -112,18 +112,57 @@
   </div>
 
   <div class="download-box">
-    <!-- 처음엔 비활성, 프레임 추출 성공하면 활성화 -->
     <button id="downloadZipBtn" disabled>모든 프레임 ZIP으로 다운로드</button>
   </div>
 
   <div id="frames" class="frames"></div>
 
-  <!-- ffmpeg.wasm (jsDelivr CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
   <!-- JSZip (ZIP 파일 생성용) -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
+    // ffmpeg 스크립트를 여러 CDN에서 로드하는 헬퍼
+    function loadFFmpegScript() {
+      return new Promise((resolve, reject) => {
+        if (window.FFmpeg) {
+          resolve();
+          return;
+        }
+
+        const cdnList = [
+          'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js',
+          'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js'
+        ];
+
+        let index = 0;
+
+        function tryNext() {
+          if (index >= cdnList.length) {
+            reject(new Error('All FFmpeg CDNs failed to load'));
+            return;
+          }
+
+          const src = cdnList[index++];
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = () => {
+            if (window.FFmpeg) {
+              resolve();
+            } else {
+              tryNext();
+            }
+          };
+          script.onerror = () => {
+            console.warn('FFmpeg CDN load failed:', src);
+            tryNext();
+          };
+          document.head.appendChild(script);
+        }
+
+        tryNext();
+      });
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const videoInput = document.getElementById('videoInput');
       const intervalSelect = document.getElementById('intervalSelect');
@@ -137,14 +176,11 @@
       let createFFmpegFn = null;
       let fetchFileFn = null;
 
-      // ZIP 생성용으로 프레임 바이너리 데이터를 보관
-      let framesData = []; // { name, data( Uint8Array ) } 배열
+      let framesData = []; // { name, data( Uint8Array ) }
 
-      // 처음에는 버튼 비활성
       extractBtn.disabled = true;
       downloadZipBtn.disabled = true;
 
-      // 파일 선택되면 프레임 추출 버튼 활성화
       videoInput.addEventListener('change', (e) => {
         selectedFile = e.target.files[0];
         framesData = [];
@@ -162,7 +198,12 @@
 
       async function initFFmpeg() {
         if (!window.FFmpeg) {
-          statusEl.textContent = '⚠ ffmpeg 라이브러리를 불러오지 못했습니다.\n잠시 후 다시 시도하거나, 광고 차단/네트워크 상태를 확인해 주세요.';
+          statusEl.textContent = 'ffmpeg 스크립트를 불러오는 중입니다...';
+          await loadFFmpegScript();
+        }
+
+        if (!window.FFmpeg) {
+          statusEl.textContent = '⚠ ffmpeg 라이브러리를 불러오지 못했습니다.\n네트워크 또는 광고 차단기를 확인해 주세요.';
           throw new Error('FFmpeg not loaded');
         }
 
@@ -174,6 +215,8 @@
 
         if (!ffmpeg) {
           ffmpeg = createFFmpegFn({
+            // core도 멀티 CDN이 필요하면 같은 방식으로 처리 가능하지만,
+            // 여기선 jsDelivr 하나만 사용
             corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
             log: true,
           });
@@ -185,7 +228,6 @@
         }
       }
 
-      // 프레임 추출 버튼
       extractBtn.addEventListener('click', async () => {
         if (!selectedFile) {
           alert('먼저 영상을 선택해주세요!');
@@ -206,9 +248,8 @@
 
           await ffmpeg.FS('writeFile', inputName, await fetchFileFn(selectedFile));
 
-          // 🔥 프레임 간격(초) → FPS로 변환
-          const interval = parseFloat(intervalSelect.value) || 1; // 초
-          const fpsValue = 1 / interval; // ex) 0.5초 → 2fps, 2초 → 0.5fps
+          const interval = parseFloat(intervalSelect.value) || 1;
+          const fpsValue = 1 / interval;
 
           statusEl.textContent =
             `프레임 추출 중입니다...\n(설정된 간격: ${interval}초, fps ≈ ${fpsValue.toFixed(3)})\n영상 길이에 따라 시간이 조금 걸릴 수 있어요.`;
@@ -227,7 +268,7 @@
           while (true) {
             const filename = `frame_${String(index).padStart(3, '0')}.jpg`;
             try {
-              const data = ffmpeg.FS('readFile', filename); // Uint8Array
+              const data = ffmpeg.FS('readFile', filename);
               framesData.push({ name: filename, data });
 
               const blob = new Blob([data.buffer], { type: 'image/jpeg' });
@@ -240,7 +281,6 @@
               found++;
               index++;
             } catch (err) {
-              // 더 이상 파일이 없으면 종료
               break;
             }
           }
@@ -261,7 +301,6 @@
         }
       });
 
-      // ZIP 다운로드 버튼
       downloadZipBtn.addEventListener('click', async () => {
         if (!framesData.length) {
           alert('먼저 프레임을 추출해주세요.');
