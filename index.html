@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>영상 → 이미지 프레임 추출기 (브라우저 버전)</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .desc {
+      text-align: center;
+      color: #666;
+      margin-bottom: 24px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .upload-box {
+      border: 2px dashed #ccc;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    .upload-box input[type="file"] {
+      margin-top: 8px;
+    }
+    button {
+      margin-top: 16px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    #status {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 14px;
+      color: #444;
+      white-space: pre-line;
+    }
+    .frames {
+      margin-top: 32px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+    .frames img {
+      width: 220px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎬 영상 → 🖼 이미지 프레임 추출 (ffmpeg.wasm)</h1>
+  <div class="desc">
+    영상 파일을 업로드하면, 브라우저 안에서 ffmpeg로 프레임을 추출해 바로 아래에 보여줍니다.<br>
+    (파일은 서버로 업로드되지 않고, 각자 PC 브라우저 안에서만 처리돼요.)
+  </div>
+
+  <div class="upload-box">
+    <div>1. 영상 파일 선택 (mp4, mov 등)</div>
+    <input id="videoInput" type="file" accept="video/*" />
+    <div>2. 아래 버튼 클릭해서 프레임 추출</div>
+    <button id="extractBtn" disabled>프레임 추출하기</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="frames" class="frames"></div>
+
+  <!-- ffmpeg.wasm 로드 (CDN) -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+
+    const videoInput = document.getElementById('videoInput');
+    const extractBtn = document.getElementById('extractBtn');
+    const statusEl = document.getElementById('status');
+    const framesEl = document.getElementById('frames');
+
+    let ffmpeg = null;
+    let selectedFile = null;
+
+    // 파일 선택되면 버튼 활성화
+    videoInput.addEventListener('change', (e) => {
+      selectedFile = e.target.files[0];
+      if (selectedFile) {
+        extractBtn.disabled = false;
+        statusEl.textContent = `선택된 파일: ${selectedFile.name}`;
+      } else {
+        extractBtn.disabled = true;
+        statusEl.textContent = '';
+      }
+    });
+
+    async function initFFmpeg() {
+      if (!ffmpeg) {
+        ffmpeg = createFFmpeg({
+          corePath: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
+          log: true,
+        });
+      }
+      if (!ffmpeg.isLoaded()) {
+        statusEl.textContent = 'ffmpeg 로딩 중입니다... (처음 한 번만 좀 오래 걸립니다)';
+        await ffmpeg.load();
+      }
+    }
+
+    extractBtn.addEventListener('click', async () => {
+      if (!selectedFile) {
+        alert('먼저 영상을 선택해주세요!');
+        return;
+      }
+
+      extractBtn.disabled = true;
+      framesEl.innerHTML = '';
+      statusEl.textContent = '준비 중...';
+
+      try {
+        // ffmpeg 로드
+        await initFFmpeg();
+
+        // 가상 파일시스템에 영상 쓰기
+        const inputName = 'input_video' + (selectedFile.name.split('.').pop() || 'mp4');
+        ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+
+        statusEl.textContent = '프레임 추출 중입니다...\n영상 길이에 따라 시간이 조금 걸릴 수 있어요.';
+
+        // fps=1 이면 1초에 한 장씩, fps=0.5 이면 2초에 한 장 (원하는대로 조절 가능)
+        // frame_%03d.jpg 형식으로 출력
+        await ffmpeg.run(
+          '-i', inputName,
+          '-vf', 'fps=1',
+          'frame_%03d.jpg'
+        );
+
+        statusEl.textContent = '이미지 불러오는 중...';
+
+        // ffmpeg FS 에 저장된 frame_001.jpg, frame_002.jpg ... 찾기
+        let index = 1;
+        let found = 0;
+
+        while (true) {
+          const filename = `frame_${String(index).padStart(3, '0')}.jpg`;
+          try {
+            const data = ffmpeg.FS('readFile', filename);
+            const blob = new Blob([data.buffer], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+
+            const img = document.createElement('img');
+            img.src = url;
+            framesEl.appendChild(img);
+
+            found++;
+            index++;
+          } catch (err) {
+            // 더 이상 파일이 없으면 종료
+            break;
+          }
+        }
+
+        if (found === 0) {
+          statusEl.textContent = '추출된 프레임이 없습니다. (영상 포맷 문제일 수 있어요)';
+        } else {
+          statusEl.textContent = `✅ 프레임 ${found}장이 추출되었습니다. 아래에서 확인하세요.`;
+        }
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = '오류가 발생했습니다: ' + err;
+      } finally {
+        extractBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
