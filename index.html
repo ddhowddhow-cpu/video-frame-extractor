@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>영상 → 프레임 추출기</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {font-family: system-ui,sans-serif; max-width:900px; margin:40px auto; text-align:center; background:#f9f9f9;}
     h1 {font-size:28px;}
@@ -20,7 +19,7 @@
 </head>
 <body>
   <h1>영상 → 프레임 추출기</h1>
-  <p>카톡·인스타·틱톡 영상도 바로 프레임으로! (100% 브라우저 처리)</p>
+  <p>카톡·인스타·틱톡 영상도 바로 프레임으로!</p>
   <div class="box">
     <p><strong>1. 영상 파일 선택</strong></p>
     <input type="file" accept="video/*" id="video">
@@ -39,15 +38,16 @@
   <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
   <div class="frames" id="result"></div>
 
-  <!-- GitHub Pages + 한국 2025년 100% 성공 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
     const ffmpeg = createFFmpeg({
       log: false,
-      corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+      wasmPath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm'
     });
 
     const videoInput = document.getElementById('video');
@@ -66,10 +66,9 @@
 
     goBtn.addEventListener('click', async () => {
       const file = videoInput.files[0];
-      if (!file) return;
       goBtn.disabled = true; zipBtn.disabled = true;
       result.innerHTML = ''; frames = [];
-      status.textContent = 'ffmpeg.wasm 로딩 중... (처음 10~30초)';
+      status.textContent = 'ffmpeg 로딩 중... (처음 10~40초)';
 
       try {
         if (!ffmpeg.isLoaded()) await ffmpeg.load();
@@ -88,11 +87,10 @@
           img.loading = "lazy";
           result.appendChild(img);
         });
-
         status.textContent = `완료! ${files.length}장 추출됨 🎉`;
         zipBtn.disabled = false;
       } catch (e) {
-        status.textContent = `에러: ${e.message}`;
+        status.textContent = `에러: ${e.message || e}`;
         console.error(e);
       }
       goBtn.disabled = false;
@@ -102,16 +100,12 @@
       zipBtn.disabled = true;
       status.textContent = 'ZIP 만드는 중...';
       const zip = new JSZip();
-      frames.forEach((blob, i) => {
-        zip.file(`프레임_${String(i+1).padStart(4,'0')}.jpg`, blob);
-      });
-      const blob = await zip.generateAsync({type:'blob'});
-      const url = URL.createObjectURL(blob);
+      frames.forEach((blob, i) => zip.file(`프레임_${String(i+1).padStart(4,'0')}.jpg`, blob));
+      const content = await zip.generateAsync({type:'blob'});
       const a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(content);
       a.download = '프레임_전체.zip';
       a.click();
-      URL.revokeObjectURL(url);
       status.textContent = 'ZIP 다운로드 완료!';
       zipBtn.disabled = false;
     });
