@@ -108,8 +108,8 @@
 
   <div class="frames" id="result"></div>
 
-  <!-- 로컬에 올려둔 ffmpeg / jszip 사용 -->
-  <script src="ffmpeg.js"></script>
+  <!-- ffmpeg는 CDN에서 로드, JSZip은 로컬 파일 사용 -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/ffmpeg.min.js"></script>
   <script src="jszip.min.js"></script>
 
   <script>
@@ -123,17 +123,22 @@
     let ffmpeg = null;
     let fetchFileFn = null;
 
+    // ffmpeg 로딩 보장
     async function ensureFFmpeg() {
       if (ffmpeg) return;
+
       if (!window.FFmpeg) {
-        throw new Error("FFmpeg 전역 객체가 없습니다. ffmpeg.js 로딩 실패.");
+        throw new Error("FFmpeg 전역 객체가 없습니다. ffmpeg.min.js 로딩 실패.");
       }
+
       const { createFFmpeg, fetchFile } = window.FFmpeg;
       fetchFileFn = fetchFile;
+
+      // corePath 지정 없이, CDN에서 알아서 core/wasm 로딩
       ffmpeg = createFFmpeg({
-        log: false,
-        corePath: "./ffmpeg-core.js"   // 같은 폴더의 ffmpeg-core.js 사용
+        log: false
       });
+
       await ffmpeg.load();
     }
 
@@ -162,10 +167,12 @@
 
         status.textContent = "프레임 추출 중...";
 
+        // 입력 영상 메모리 FS에 쓰기
         ffmpeg.FS("writeFile", "input.mp4", await fetchFileFn(file));
 
         const sec = document.getElementById("interval").value;
 
+        // fps=1/sec → sec초마다 1프레임
         await ffmpeg.run(
           "-i", "input.mp4",
           "-vf", `fps=1/${sec}`,
