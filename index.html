@@ -117,52 +117,12 @@
 
   <div id="frames" class="frames"></div>
 
+  <!-- 🔥 ffmpeg.wasm (jsDelivr UMD 빌드) -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.min.js"></script>
   <!-- JSZip (ZIP 파일 생성용) -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
-    // ffmpeg 스크립트를 여러 CDN에서 로드하는 헬퍼
-    function loadFFmpegScript() {
-      return new Promise((resolve, reject) => {
-        if (window.FFmpeg) {
-          resolve();
-          return;
-        }
-
-        const cdnList = [
-          'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js',
-          'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js'
-        ];
-
-        let index = 0;
-
-        function tryNext() {
-          if (index >= cdnList.length) {
-            reject(new Error('All FFmpeg CDNs failed to load'));
-            return;
-          }
-
-          const src = cdnList[index++];
-          const script = document.createElement('script');
-          script.src = src;
-          script.onload = () => {
-            if (window.FFmpeg) {
-              resolve();
-            } else {
-              tryNext();
-            }
-          };
-          script.onerror = () => {
-            console.warn('FFmpeg CDN load failed:', src);
-            tryNext();
-          };
-          document.head.appendChild(script);
-        }
-
-        tryNext();
-      });
-    }
-
     window.addEventListener('DOMContentLoaded', () => {
       const videoInput = document.getElementById('videoInput');
       const intervalSelect = document.getElementById('intervalSelect');
@@ -173,14 +133,15 @@
 
       let ffmpeg = null;
       let selectedFile = null;
-      let createFFmpegFn = null;
-      let fetchFileFn = null;
 
-      let framesData = []; // { name, data( Uint8Array ) }
+      // ZIP 생성용 데이터
+      let framesData = []; // { name, data }
 
+      // 처음엔 비활성
       extractBtn.disabled = true;
       downloadZipBtn.disabled = true;
 
+      // 파일 선택 시
       videoInput.addEventListener('change', (e) => {
         selectedFile = e.target.files[0];
         framesData = [];
@@ -197,27 +158,18 @@
       });
 
       async function initFFmpeg() {
+        // 🔥 ffmpeg 스크립트가 정말 로드됐는지 확인
         if (!window.FFmpeg) {
-          statusEl.textContent = 'ffmpeg 스크립트를 불러오는 중입니다...';
-          await loadFFmpegScript();
+          statusEl.textContent = '⚠ ffmpeg 스크립트를 불러오지 못했습니다.\n네트워크나 광고 차단기를 확인해 주세요.';
+          throw new Error('FFmpeg global not found');
         }
 
-        if (!window.FFmpeg) {
-          statusEl.textContent = '⚠ ffmpeg 라이브러리를 불러오지 못했습니다.\n네트워크 또는 광고 차단기를 확인해 주세요.';
-          throw new Error('FFmpeg not loaded');
-        }
-
-        if (!createFFmpegFn || !fetchFileFn) {
-          const { createFFmpeg, fetchFile } = window.FFmpeg;
-          createFFmpegFn = createFFmpeg;
-          fetchFileFn = fetchFile;
-        }
+        const { createFFmpeg, fetchFile } = window.FFmpeg;
 
         if (!ffmpeg) {
-          ffmpeg = createFFmpegFn({
-            // core도 멀티 CDN이 필요하면 같은 방식으로 처리 가능하지만,
-            // 여기선 jsDelivr 하나만 사용
-            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
+          ffmpeg = createFFmpeg({
+            // core도 jsDelivr의 UMD 경로 사용
+            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.15/dist/umd/ffmpeg-core.js',
             log: true,
           });
         }
@@ -226,8 +178,11 @@
           statusEl.textContent = 'ffmpeg 로딩 중입니다... (처음 한 번만 조금 오래 걸립니다)';
           await ffmpeg.load();
         }
+
+        return { fetchFile };
       }
 
+      // 프레임 추출 버튼
       extractBtn.addEventListener('click', async () => {
         if (!selectedFile) {
           alert('먼저 영상을 선택해주세요!');
@@ -241,12 +196,12 @@
         statusEl.textContent = '준비 중...';
 
         try {
-          await initFFmpeg();
+          const { fetchFile } = await initFFmpeg();
 
           const ext = selectedFile.name.includes('.') ? '.' + selectedFile.name.split('.').pop() : '.mp4';
           const inputName = 'input_video' + ext;
 
-          await ffmpeg.FS('writeFile', inputName, await fetchFileFn(selectedFile));
+          await ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
 
           const interval = parseFloat(intervalSelect.value) || 1;
           const fpsValue = 1 / interval;
@@ -301,6 +256,7 @@
         }
       });
 
+      // ZIP 다운로드 버튼
       downloadZipBtn.addEventListener('click', async () => {
         if (!framesData.length) {
           alert('먼저 프레임을 추출해주세요.');
