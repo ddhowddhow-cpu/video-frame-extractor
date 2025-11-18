@@ -41,7 +41,7 @@
   <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
   <div class="frames" id="result"></div>
 
-  <!-- 싱글스레드 강제 + 한국에서 가장 잘 되는 CDN -->
+  <!-- 싱글스레드 버전 강제 (SharedArrayBuffer 오류 100% 방지) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
   <script src="https://unpkg.com/@ffmpeg/core-st@0.11.0/dist/umd/ffmpeg-core.js"></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
