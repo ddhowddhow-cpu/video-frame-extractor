@@ -1,6 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>영상 → 프레임 추출기</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      text-align: center;
+      background: #f9f9f9;
+    }
+    h1 { font-size: 28px; margin-bottom: 4px; }
+    p { margin: 6px 0; }
+    .box {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 40px 20px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+      margin-top: 24px;
+    }
+    input, select, button {
+      margin: 15px;
+      font-size: 17px;
+    }
+    input[type="file"] {
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background: #fafafa;
+    }
+    select {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background: #fff;
+    }
+    button {
+      padding: 16px 40px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    #go {
+      background: #0d6efd;
+      color: white;
+    }
+    #go:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+    #zip {
+      background: #0d9328;
+      color: white;
+      margin-top: 24px;
+    }
+    #zip:disabled {
+      background: #7fb58a;
+      cursor: not-allowed;
+    }
+    #status {
+      margin: 20px;
+      font-size: 17px;
+      min-height: 60px;
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+    .frames {
+      margin-top: 40px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+    }
+    .frames img {
+      max-width: 320px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+    }
+  </style>
+</head>
+<body>
+  <h1>영상 → 프레임 추출기</h1>
+  <p>카톡·인스타·틱톡 영상도 바로 프레임으로!</p>
+
+  <div class="box">
+    <p><strong>1. 영상 파일 선택</strong></p>
+    <input type="file" accept="video/*" id="video">
+
+    <p style="margin-top:20px;"><strong>프레임 간격</strong></p>
+    <select id="interval">
+      <option value="0.5">0.5초</option>
+      <option value="1" selected>1초 (추천)</option>
+      <option value="2">2초</option>
+      <option value="5">5초</option>
+      <option value="10">10초</option>
+    </select>
+
+    <br><br>
+    <button id="go" disabled>프레임 추출 시작</button>
+    <div id="status">파일 선택하면 파란 버튼이 활성화돼요</div>
+  </div>
+
+  <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
+
+  <div class="frames" id="result"></div>
+
   <!-- ffmpeg UMD -->
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-  <!-- JSZip CDN -->
+  <!-- JSZip -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
@@ -11,14 +121,11 @@
     const result = document.getElementById("result");
     let frames = [];
 
-    // ffmpeg 인스턴스는 나중에 필요할 때 생성
     let ffmpeg = null;
     let fetchFileFn = null;
 
     async function ensureFFmpeg() {
-      // 이미 준비됐으면 그대로 사용
       if (ffmpeg) return;
-
       if (!window.FFmpeg) {
         throw new Error("FFmpeg 스크립트를 불러오지 못했습니다.");
       }
@@ -28,11 +135,10 @@
         log: false,
         corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js"
       });
-
       await ffmpeg.load();
     }
 
-    // 1) 파일 선택 시 파란 버튼 활성화 (이건 FFmpeg와 상관없이 항상 살아있어야 함)
+    // 파일 선택 → 버튼 활성화
     videoInput.addEventListener("change", () => {
       if (videoInput.files[0]) {
         goBtn.disabled = false;
@@ -41,7 +147,7 @@
       }
     });
 
-    // 2) 프레임 추출
+    // 프레임 추출
     goBtn.addEventListener("click", async () => {
       const file = videoInput.files[0];
       if (!file) return;
@@ -53,7 +159,7 @@
       status.textContent = "ffmpeg 로딩 중... (처음은 10~40초 걸릴 수 있음)";
 
       try {
-        await ensureFFmpeg(); // 여기서만 FFmpeg 준비
+        await ensureFFmpeg();
 
         status.textContent = "프레임 추출 중...";
 
@@ -91,7 +197,7 @@
       goBtn.disabled = false;
     });
 
-    // 3) ZIP 다운로드
+    // ZIP 다운로드
     zipBtn.addEventListener("click", async () => {
       if (!frames.length) return;
 
@@ -113,3 +219,5 @@
       zipBtn.disabled = false;
     });
   </script>
+</body>
+</html>
