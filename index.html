@@ -89,7 +89,8 @@
 
   <div class="box">
     <p><strong>1. 영상 파일 선택</strong></p>
-    <input type="file" accept="video/*" id="video">
+    <!-- 파일 선택 시 onVideoChange가 무조건 한 번 호출되게 -->
+    <input type="file" accept="video/*" id="video" onchange="onVideoChange(this)">
 
     <p style="margin-top:20px;"><strong>프레임 간격</strong></p>
     <select id="interval">
@@ -101,17 +102,198 @@
     </select>
 
     <br><br>
-    <button id="go" disabled>프레임 추출 시작</button>
+    <button id="go" disabled onclick="startExtract()">프레임 추출 시작</button>
     <div id="status">파일 선택하면 파란 버튼이 활성화돼요</div>
   </div>
 
-  <button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
+  <button id="zip" disabled onclick="downloadZip()">모든 프레임 ZIP 다운로드</button>
 
   <div class="frames" id="result"></div>
 
-  <!-- JSZip 로컬 파일 (jszip.min.js는 레포에 이미 있는 걸로 가정) -->
+  <!-- ZIP 만들기용 라이브러리 (레포에 jszip.min.js 있어야 함) -->
   <script src="jszip.min.js"></script>
-  <!-- 우리의 메인 로직 -->
-  <script src="script.js"></script>
+
+  <!-- 메인 로직: ffmpeg / eval 전혀 안 씀 -->
+  <script>
+    const goBtn   = document.getElementById('go');
+    const zipBtn  = document.getElementById('zip');
+    const status  = document.getElementById('status');
+    const result  = document.getElementById('result');
+
+    const videoEl = document.createElement('video');
+    videoEl.style.display = 'none';
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+
+    const canvas  = document.createElement('canvas');
+    canvas.style.display = 'none';
+    const ctx = canvas.getContext('2d');
+
+    document.body.appendChild(videoEl);
+    document.body.appendChild(canvas);
+
+    let selectedFile = null;
+    let frames = [];
+
+    function onVideoChange(input) {
+      const file = input.files[0];
+      if (file) {
+        selectedFile = file;
+        goBtn.disabled = false;
+        status.innerHTML =
+          '<strong>' + file.name + '</strong>\\n파란 버튼을 누르면 프레임을 추출합니다!';
+      } else {
+        selectedFile = null;
+        goBtn.disabled = true;
+        status.textContent = '파일을 다시 선택해 주세요.';
+      }
+    }
+
+    function loadVideoMetadata(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        videoEl.src = url;
+
+        const onLoaded = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        const onError = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('영상 메타데이터를 불러오지 못했습니다.'));
+        };
+
+        videoEl.addEventListener('loadedmetadata', onLoaded, { once: true });
+        videoEl.addEventListener('error', onError, { once: true });
+      });
+    }
+
+    function seekTo(time) {
+      return new Promise((resolve, reject) => {
+        const onSeeked = () => {
+          videoEl.removeEventListener('seeked', onSeeked);
+          resolve();
+        };
+        const onError = () => {
+          videoEl.removeEventListener('error', onError);
+          reject(new Error('영상 시킹 중 오류가 발생했습니다.'));
+        };
+
+        videoEl.addEventListener('seeked', onSeeked);
+        videoEl.addEventListener('error', onError, { once: true });
+
+        videoEl.currentTime = Math.min(time, videoEl.duration);
+      });
+    }
+
+    function captureFrameAsBlob() {
+      return new Promise((resolve, reject) => {
+        try {
+          if (!canvas.width || !canvas.height) {
+            canvas.width  = videoEl.videoWidth;
+            canvas.height = videoEl.videoHeight;
+          }
+
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('프레임 캡처에 실패했습니다.'));
+            } else {
+              resolve(blob);
+            }
+          }, 'image/jpeg', 0.9);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+
+    async function startExtract() {
+      if (!selectedFile) return;
+
+      goBtn.disabled  = true;
+      zipBtn.disabled = true;
+      result.innerHTML = '';
+      frames = [];
+      status.textContent = '영상 로딩 중...';
+
+      try {
+        await loadVideoMetadata(selectedFile);
+
+        const duration    = videoEl.duration;
+        const intervalSec = parseFloat(document.getElementById('interval').value);
+
+        if (!isFinite(duration) || duration <= 0) {
+          throw new Error('영상 길이를 가져오지 못했습니다.');
+        }
+
+        const captureTimes = [];
+        for (let t = 0; t <= duration; t += intervalSec) {
+          captureTimes.push(t);
+        }
+        if (captureTimes[captureTimes.length - 1] < duration - intervalSec / 2) {
+          captureTimes.push(duration);
+        }
+
+        status.textContent = '프레임 추출 중... (총 ' + captureTimes.length + '장 예정)';
+
+        for (let i = 0; i < captureTimes.length; i++) {
+          const t = captureTimes[i];
+          status.textContent = '프레임 추출 중... (' + (i + 1) + '/' + captureTimes.length + ')';
+
+          await seekTo(t);
+          const blob = await captureFrameAsBlob();
+          frames.push(blob);
+
+          const img = new Image();
+          img.src = URL.createObjectURL(blob);
+          img.loading = 'lazy';
+          img.alt = 'frame_' + (i + 1);
+          result.appendChild(img);
+        }
+
+        status.textContent = '완료! 총 ' + frames.length + '장의 프레임이 추출되었습니다 🎉';
+        zipBtn.disabled = frames.length === 0;
+      } catch (e) {
+        console.error(e);
+        status.textContent = '에러 발생: ' + (e.message || e);
+      }
+
+      goBtn.disabled = false;
+    }
+
+    async function downloadZip() {
+      if (!frames.length) return;
+
+      zipBtn.disabled = true;
+      status.textContent = 'ZIP 파일 생성 중...';
+
+      try {
+        const zip = new JSZip();
+        frames.forEach((blob, i) => {
+          zip.file('frame_' + String(i + 1).padStart(4, '0') + '.jpg', blob);
+        });
+
+        const content = await zip.generateAsync({ type: 'blob' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = 'frames.zip';
+        a.click();
+
+        status.textContent = 'ZIP 다운로드 완료!';
+      } catch (e) {
+        console.error(e);
+        status.textContent = 'ZIP 생성 중 에러 발생: ' + (e.message || e);
+      }
+
+      zipBtn.disabled = false;
+    }
+
+    // 전역에서 쓸 수 있게 window에 붙여줌
+    window.onVideoChange = onVideoChange;
+    window.startExtract = startExtract;
+    window.downloadZip = downloadZip;
+  </script>
 </body>
 </html>
