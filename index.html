@@ -2,123 +2,114 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>영상 → 프레임 추출기 (2025 한국 무적 버전)</title>
+<title>영상 → 프레임 추출기</title>
 <style>
   body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;text-align:center;background:#f9f9f9;}
-  h1{font-size:28px;}p{font-size:18px;color:#555;}
-  .box{background:white;border-radius:20px;padding:40px;box-shadow:0 8px 30px rgba(0,0,0,0.1);margin:20px 0;}
-  input,select,button{margin:15px;font-size:18px;padding:12px;}
-  button{border:none;border-radius:12px;cursor:pointer;padding:16px 40px;}
+  h1{font-size:28px;}
+  .box{background:white;border-radius:20px;padding:40px;box-shadow:0 8px 30px rgba(0,0,0,0.1);}
+  input,select,button{margin:15px;font-size:18px;}
+  button{padding:16px 40px;border:none;border-radius:12px;cursor:pointer;}
   #go{background:#0d6efd;color:white;}
   #go:disabled{background:#aaa;cursor:not-allowed;}
   #zip{background:#0d9328;color:white;}
-  #status{margin:20px;font-size:18px;min-height:60px;line-height:1.6;color:#333;}
+  #status{margin:20px;font-size:18px;min-height:60px;}
   .frames{margin-top:50px;display:flex;flex-wrap:wrap;gap:20px;justify-content:center;}
   .frames img{max-width:320px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.1);}
 </style>
 </head>
 <body>
 <h1>영상 → 프레임 추출기</h1>
-<p>카톡, 인스타, 틱톡, 유튜브 다 됨! 한국 어디서든 바로 작동</p>
+<p>카톡·인스타·틱톡 영상도 바로 프레임으로!</p>
 
 <div class="box">
   <p><strong>1. 영상 파일 선택</strong></p>
   <input type="file" accept="video/*" id="video">
-  
   <p><strong>프레임 간격</strong></p>
   <select id="interval">
-    <option value="0.5">0.5초마다</option>
-    <option value="1" selected>1초마다 (추천)</option>
-    <option value="2">2초마다</option>
-    <option value="5">5초마다</option>
-    <option value="10">10초마다</option>
+    <option value="0.5">0.5초</option>
+    <option value="1" selected>1초 (추천)</option>
+    <option value="2">2초</option>
+    <option value="5">5초</option>
+    <option value="10">10초</option>
   </select>
   <br><br>
   <button id="go" disabled>프레임 추출 시작</button>
-  <div id="status">영상 선택하면 파란 버튼이 활성화돼요</div>
+  <div id="status">영상 선택하면 버튼 활성화돼요</div>
 </div>
 
-<button id="zip" disabled style="font-size:20px;padding:18px 50px;">모든 프레임 ZIP 다운로드</button>
+<button id="zip" disabled>모든 프레임 ZIP 다운로드</button>
 <div class="frames" id="result"></div>
 
-<!-- 2025년 11월 한국에서 진짜 안 막히는 링크들 -->
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/umd/ffmpeg.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/umd/ffmpeg-core.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-
+<!-- GitHub Pages 전용 https 100% 안전 링크 -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
 <script>
-const { createFFmpeg, fetchFile } = FFmpeg;
-const ffmpeg = createFFmpeg({
-  log: false,
-  corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/umd/ffmpeg-core.js',
-});
-
-const videoInput = document.getElementById('video');
-const goBtn = document.getElementById('go');
-const zipBtn = document.getElementById('zip');
-const status = document.getElementById('status');
-const result = document.getElementById('result');
-let frames = [];
-
-videoInput.addEventListener('change', () => {
-  if (videoInput.files.length > 0) {
-    goBtn.disabled = false;
-    status.innerHTML = `<strong>${videoInput.files[0].name}</strong><br>파란 버튼 눌러주세요!`;
-  }
-});
-
-goBtn.addEventListener('click', async () => {
-  const file = videoInput.files[0];
-  goBtn.disabled = true; zipBtn.disabled = true;
-  result.innerHTML = ''; frames = [];
-  status.textContent = 'ffmpeg 처음 로딩 중... (10~25초 정도, 한 번만 걸려요)';
-
-  try {
-    if (!ffmpeg.isLoaded()) await ffmpeg.load();
-    
-    status.textContent = '영상 분석 & 프레임 추출 중...';
-    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
-    
-    const sec = document.getElementById('interval').value;
-    await ffmpeg.run('-i', 'input.mp4', '-vf', `fps=1/${sec}`, '-q:v', '2', 'frame_%05d.jpg');
-    
-    const files = ffmpeg.FS('readdir', '.').filter(f => f.startsWith('frame_'));
-    
-    for (const f of files) {
-      const data = ffmpeg.FS('readFile', f);
-      const blob = new Blob([data.buffer], {type: 'image/jpeg'});
-      frames.push(blob);
-      
-      const img = new Image();
-      img.src = URL.createObjectURL(blob);
-      img.loading = "lazy";
-      result.appendChild(img);
-    }
-    
-    status.textContent = `완료! ${files.length}장 추출됨 🎉`;
-    zipBtn.disabled = false;
-  } catch (e) {
-    status.textContent = `오류: ${e.message}`;
-    console.error(e);
-  }
-  goBtn.disabled = false;
-});
-
-zipBtn.addEventListener('click', async () => {
-  zipBtn.disabled = true;
-  status.textContent = 'ZIP 만드는 중...';
-  const zip = new JSZip();
-  frames.forEach((blob, i) => {
-    zip.file(`프레임_${String(i+1).padStart(4,'0')}.jpg`, blob);
+  // core는 자동으로 https에서 로드되게 강제 설정
+  const { createFFmpeg, fetchFile } = FFmpeg;
+  const ffmpeg = createFFmpeg({
+    log: false,
+    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
   });
-  const blob = await zip.generateAsync({type:'blob'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '프레임_전체.zip';
-  a.click();
-  status.textContent = 'ZIP 다운로드 완료!';
-  zipBtn.disabled = false;
-});
+
+  const videoInput = document.getElementById('video');
+  const goBtn = document.getElementById('go');
+  const zipBtn = document.getElementById('zip');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  let frames = [];
+
+  videoInput.addEventListener('change', () => {
+    if (videoInput.files[0]) {
+      goBtn.disabled = false;
+      status.innerHTML = `<strong>${videoInput.files[0].name}</strong><br>파란 버튼 눌러주세요!`;
+    }
+  });
+
+  goBtn.addEventListener('click', async () => {
+    const file = videoInput.files[0];
+    goBtn.disabled = true; zipBtn.disabled = true;
+    result.innerHTML = ''; frames = [];
+    status.textContent = 'ffmpeg 로딩 중... (처음 10~30초)';
+
+    try {
+      if (!ffmpeg.isLoaded()) await ffmpeg.load();
+      status.textContent = '프레임 추출 중...';
+      ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
+      const sec = document.getElementById('interval').value;
+      await ffmpeg.run('-i', 'input.mp4', '-vf', `fps=1/${sec}`, '-q:v', '2', 'frame_%05d.jpg');
+
+      const files = ffmpeg.FS('readdir', '.').filter(f => f.startsWith('frame_'));
+      for (const f of files) {
+        const data = ffmpeg.FS('readFile', f);
+        const blob = new Blob([data.buffer], {type: 'image/jpeg'});
+        frames.push(blob);
+        const img = new Image();
+        img.src = URL.createObjectURL(blob);
+        img.loading = "lazy";
+        result.appendChild(img);
+      }
+      status.textContent = `완료! ${files.length}장 추출됨 🎉`;
+      zipBtn.disabled = false;
+    } catch (e) {
+      status.textContent = `오류: ${e.message}`;
+      console.error(e);
+    }
+    goBtn.disabled = false;
+  });
+
+  zipBtn.addEventListener('click', async () => {
+    zipBtn.disabled = true;
+    status.textContent = 'ZIP 만드는 중...';
+    const zip = new JSZip();
+    frames.forEach((b,i) => zip.file(`프레임_${String(i+1).padStart(4,'0')}.jpg`, b));
+    const blob = await zip.generateAsync({type:'blob'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '프레임_전체.zip';
+    a.click();
+    status.textContent = 'ZIP 다운로드 완료!';
+    zipBtn.disabled = false;
+  });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </body>
 </html>
